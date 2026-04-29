@@ -1,8 +1,11 @@
 import argparse
+import json
+import math
 import random
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
@@ -16,6 +19,53 @@ try:
     HAS_BNB = True
 except ImportError:
     HAS_BNB = False
+
+
+class LoRALinear(nn.Module):
+    def __init__(self, original_linear: nn.Linear, rank: int, alpha: float):
+        super().__init__()
+        self.original = original_linear
+        for p in self.original.parameters():
+            p.requires_grad = False
+
+        in_features = original_linear.in_features
+        out_features = original_linear.out_features
+
+        self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
+        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+
+        self.rank = rank
+        self.alpha = alpha
+        self.scaling = alpha / rank
+
+    def forward(self, x):
+        base = self.original(x)
+        x_lora = x.to(self.lora_A.dtype)
+        lora = F.linear(F.linear(x_lora, self.lora_A), self.lora_B) * self.scaling
+        return base + lora.to(base.dtype)
+
+
+def patch_unet_with_lora(unet, rank: int, alpha: float):
+    lora_params = []
+    for module in unet.modules():
+        if hasattr(module, "to_q") and hasattr(module, "to_k") and hasattr(module, "to_v"):
+            for sub_name in ("to_q", "to_k", "to_v"):
+                original = getattr(module, sub_name)
+                if isinstance(original, nn.Linear):
+                    wrapped = LoRALinear(original, rank, alpha)
+                    setattr(module, sub_name, wrapped)
+                    lora_params.extend([wrapped.lora_A, wrapped.lora_B])
+            to_out = getattr(module, "to_out", None)
+            if isinstance(to_out, nn.Sequential) and len(to_out) > 0 and isinstance(to_out[0], nn.Linear):
+                wrapped = LoRALinear(to_out[0], rank, alpha)
+                to_out[0] = wrapped
+                lora_params.extend([wrapped.lora_A, wrapped.lora_B])
+    return lora_params
+
+
+def get_lora_state_dict(unet):
+    return {n: p.detach().cpu() for n, p in unet.named_parameters() if "lora_" in n}
 
 
 def get_device():
@@ -43,6 +93,9 @@ def parse_args():
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
     parser.add_argument("--mixed_precision", type=str, default="fp16", choices=["no", "fp16", "bf16"])
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--use_lora", action="store_true", help="Train with LoRA adapters instead of full UNet fine-tuning")
+    parser.add_argument("--lora_rank", type=int, default=4)
+    parser.add_argument("--lora_alpha", type=float, default=4.0)
     return parser.parse_args()
 
 
@@ -169,8 +222,18 @@ def main():
     unet.to(device)
     unet.train()
 
+    if args.use_lora:
+        unet.requires_grad_(False)
+        lora_params = patch_unet_with_lora(unet, rank=args.lora_rank, alpha=args.lora_alpha)
+        unet.to(device)
+        trainable_params = lora_params
+        print(f"LoRA enabled: rank={args.lora_rank}, alpha={args.lora_alpha}, "
+              f"trainable params={sum(p.numel() for p in lora_params):,}")
+    else:
+        trainable_params = list(unet.parameters())
+
     optimizer_cls = bnb.optim.AdamW8bit if HAS_BNB else torch.optim.AdamW
-    optimizer = optimizer_cls(unet.parameters(), lr=args.learning_rate)
+    optimizer = optimizer_cls(trainable_params, lr=args.learning_rate)
 
     dataset = DreamBoothDataset(
         instance_data_dir=args.instance_data_dir,
@@ -235,7 +298,7 @@ def main():
 
             if (global_step + 1) % args.gradient_accumulation_steps == 0:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(unet.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
@@ -247,14 +310,24 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline = StableDiffusionPipeline.from_pretrained(
-        args.pretrained_model,
-        unet=unet,
-        text_encoder=text_encoder,
-        safety_checker=None,
-    )
-    pipeline.save_pretrained(output_dir)
-    print(f"Model saved to {output_dir}")
+    if args.use_lora:
+        torch.save(get_lora_state_dict(unet), output_dir / "lora_weights.pt")
+        with open(output_dir / "lora_config.json", "w") as f:
+            json.dump({
+                "rank": args.lora_rank,
+                "alpha": args.lora_alpha,
+                "pretrained_model": args.pretrained_model,
+            }, f, indent=2)
+        print(f"LoRA weights saved to {output_dir}")
+    else:
+        pipeline = StableDiffusionPipeline.from_pretrained(
+            args.pretrained_model,
+            unet=unet,
+            text_encoder=text_encoder,
+            safety_checker=None,
+        )
+        pipeline.save_pretrained(output_dir)
+        print(f"Model saved to {output_dir}")
 
 
 if __name__ == "__main__":

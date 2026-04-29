@@ -5,6 +5,8 @@ from pathlib import Path
 import torch
 from diffusers import StableDiffusionPipeline
 
+from train_dreambooth import patch_unet_with_lora
+
 
 def get_device():
     if torch.cuda.is_available():
@@ -16,7 +18,10 @@ def get_device():
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--model_path", type=str, required=True,
+                        help="Path to a saved DreamBooth pipeline, or to base SD when using --lora_path")
+    parser.add_argument("--lora_path", type=str, default=None,
+                        help="Path to a directory containing lora_weights.pt and lora_config.json")
     parser.add_argument("--prompts", type=str, nargs="+", default=None)
     parser.add_argument("--prompts_file", type=str, default=None)
     parser.add_argument("--output_dir", type=str, required=True)
@@ -48,6 +53,19 @@ def main():
         torch_dtype=weight_dtype,
         safety_checker=None,
     ).to(device)
+
+    if args.lora_path:
+        lora_dir = Path(args.lora_path)
+        with open(lora_dir / "lora_config.json", "r") as f:
+            lora_config = json.load(f)
+        patch_unet_with_lora(pipeline.unet, rank=lora_config["rank"], alpha=lora_config["alpha"])
+        state = torch.load(lora_dir / "lora_weights.pt", map_location="cpu")
+        state = {k: v.to(device=device, dtype=weight_dtype) for k, v in state.items()}
+        missing, unexpected = pipeline.unet.load_state_dict(state, strict=False)
+        if unexpected:
+            raise RuntimeError(f"Unexpected keys when loading LoRA: {unexpected}")
+        pipeline.unet.to(device)
+        print(f"Loaded LoRA weights from {lora_dir} (rank={lora_config['rank']})")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
