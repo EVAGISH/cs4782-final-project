@@ -11,6 +11,12 @@ from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNe
 from transformers import CLIPTextModel, CLIPTokenizer
 from tqdm import tqdm
 
+try:
+    import bitsandbytes as bnb
+    HAS_BNB = True
+except ImportError:
+    HAS_BNB = False
+
 
 def get_device():
     if torch.cuda.is_available():
@@ -28,7 +34,7 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--instance_prompt", type=str, required=True)
     parser.add_argument("--class_prompt", type=str, required=True)
-    parser.add_argument("--num_class_images", type=int, default=200)
+    parser.add_argument("--num_class_images", type=int, default=1000)
     parser.add_argument("--max_train_steps", type=int, default=1000)
     parser.add_argument("--learning_rate", type=float, default=5e-6)
     parser.add_argument("--prior_loss_weight", type=float, default=1.0)
@@ -56,6 +62,7 @@ class DreamBoothDataset(Dataset):
         self.image_transforms = transforms.Compose([
             transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BILINEAR),
             transforms.CenterCrop(resolution),
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ])
@@ -142,9 +149,9 @@ def main():
         weight_dtype = torch.float32
 
     tokenizer = CLIPTokenizer.from_pretrained(args.pretrained_model, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(args.pretrained_model, subfolder="text_encoder")
-    vae = AutoencoderKL.from_pretrained(args.pretrained_model, subfolder="vae")
-    unet = UNet2DConditionModel.from_pretrained(args.pretrained_model, subfolder="unet")
+    text_encoder = CLIPTextModel.from_pretrained(args.pretrained_model, subfolder="text_encoder", torch_dtype=weight_dtype)
+    vae = AutoencoderKL.from_pretrained(args.pretrained_model, subfolder="vae", torch_dtype=weight_dtype)
+    unet = UNet2DConditionModel.from_pretrained(args.pretrained_model, subfolder="unet", torch_dtype=weight_dtype)
     noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model, subfolder="scheduler")
 
     pipeline = StableDiffusionPipeline.from_pretrained(
@@ -155,16 +162,15 @@ def main():
     generate_class_images(args, pipeline, device)
 
     vae.requires_grad_(False)
-    vae.to(device, dtype=weight_dtype)
+    vae.to(device)
+    text_encoder.requires_grad_(False)
     text_encoder.to(device)
-    text_encoder.train()
+    text_encoder.eval()
     unet.to(device)
     unet.train()
 
-    optimizer = torch.optim.AdamW(
-        list(unet.parameters()) + list(text_encoder.parameters()),
-        lr=args.learning_rate,
-    )
+    optimizer_cls = bnb.optim.AdamW8bit if HAS_BNB else torch.optim.AdamW
+    optimizer = optimizer_cls(unet.parameters(), lr=args.learning_rate)
 
     dataset = DreamBoothDataset(
         instance_data_dir=args.instance_data_dir,
@@ -182,8 +188,11 @@ def main():
         num_workers=0,
     )
 
-    use_amp = args.mixed_precision != "no" and device.type == "cuda"
-    scaler = torch.amp.GradScaler(enabled=use_amp)
+    use_autocast = args.mixed_precision != "no" and device.type == "cuda"
+    # GradScaler requires fp32 parameter gradients; when models are loaded in fp16 the
+    # gradients are already fp16 and cannot be unscaled, so we disable the scaler.
+    use_scaler = use_autocast and weight_dtype == torch.float32
+    scaler = torch.amp.GradScaler(enabled=use_scaler)
 
     progress_bar = tqdm(range(args.max_train_steps), desc="Training")
     global_step = 0
@@ -193,7 +202,7 @@ def main():
             if global_step >= args.max_train_steps:
                 break
 
-            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            with torch.amp.autocast(device_type=device.type, enabled=use_autocast):
                 instance_images = batch["instance_images"].to(device, dtype=weight_dtype)
                 instance_prompt_ids = batch["instance_prompt_ids"].to(device)
                 class_images = batch["class_images"].to(device, dtype=weight_dtype)
@@ -225,6 +234,8 @@ def main():
             scaler.scale(loss).backward()
 
             if (global_step + 1) % args.gradient_accumulation_steps == 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(unet.parameters(), max_norm=1.0)
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
