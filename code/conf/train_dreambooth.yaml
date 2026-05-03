@@ -1,0 +1,43 @@
+# task: image | video
+# image -> Stable Diffusion DreamBooth (UNet2D, single images, optional class-prior NPZ)
+# video -> ali-vilab/text-to-video-ms-1.7b DreamBooth (UNet3D, video clips, no prior preservation in v1)
+task: video
+
+model:
+  # image options: stabilityai/stable-diffusion-xl-refiner-1.0 | runwayml/stable-diffusion-v1-5 | common-canvas/CommonCanvas-XL-C
+  # video option : ali-vilab/text-to-video-ms-1.7b
+  pretrained_model: ali-vilab/text-to-video-ms-1.7b
+
+data:
+  # Active prompt — used by both image and video modes.
+  instance_prompt: a video of a sks bird
+  resolution: 256
+  # image-mode keys (used only when task == image)
+  instance_data_dir: ../dataset/backpack
+  class_images_npz: ../class_priors/backpack_class_priors.npz
+  class_prompt: a photo of a backpack
+  # video-mode keys (used only when task == video)
+  instance_video_dir: ../dataset/bird_videos_clean
+  num_frames: 16
+  frame_stride: 1
+
+training:
+  output_dir: ../results/bird_video_lora
+  max_train_steps: 1500
+  learning_rate: 1e-4
+  prior_loss_weight: 1.0    # ignored in video mode (no class loss)
+  train_batch_size: 1
+  gradient_accumulation_steps: 1
+  log_every_steps: 25
+  seed: 0
+  # video-only memory knobs
+  vae_encode_chunk_size: 4
+
+lora:
+  enabled: true
+  rank: 16
+  alpha: 4.0
+
+hydra:
+  job:
+    chdir: false

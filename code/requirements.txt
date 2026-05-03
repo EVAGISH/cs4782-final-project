@@ -1,3 +1,5 @@
+numpy
+hydra-core
 torch
 diffusers
 transformers
@@ -5,6 +7,7 @@ accelerate
 safetensors
 Pillow
 torchvision
+torchcodec
 ftfy
 scipy
 tqdm

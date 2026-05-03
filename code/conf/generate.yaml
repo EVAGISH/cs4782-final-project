@@ -1,0 +1,50 @@
+# task: image | video
+# image -> StableDiffusionPipeline, writes .png per sample
+# video -> TextToVideoSDPipeline, writes .mp4 per sample
+# Set to null to auto-detect from the saved checkpoint (LoRA dir's lora_config.json
+# or a saved pipeline's model_index.json). Override only if loading a base HF id.
+task: null
+
+model:
+  # Can be a saved full pipeline directory, a LoRA directory, or a Hugging Face model id.
+  # video base id: ali-vilab/text-to-video-ms-1.7b
+  model_path: ../results/bird_video_lora_2
+
+inference:
+  prompts:
+    - a video of a sks bird flying over a lake
+    - a video of a sks bird perched on a branch
+    - a video of a sks bird in flight against a sunset sky
+    - a video of a sks bird walking on grass
+  prompts_file: null
+  output_dir: ../results/bird_video_lora_samples
+  num_images_per_prompt: 2
+  guidance_scale: 9.0
+  num_inference_steps: 50
+  # video-only knobs (ignored when task == image)
+  num_frames: 16
+  fps: 8
+
+runtime:
+  seed: 0
+
+# Classifier-guidance-style biasing toward a VAE latent of the subject images.
+# Image task only. After each scheduler step:
+#   latents <- (1 - w_t) * latents + w_t * noised_anchor
+# where the anchor is selected per `mode` and w_t is computed per `schedule`.
+anchor:
+  enabled: false
+  subject_dir: ../dataset/backpack
+  weight: 0.15
+  # pooled            -> mean of all N subject latents (tends to blur)
+  # random_per_sample -> pick one subject latent per output, fixed across all steps
+  # random_per_step   -> resample a different subject latent at every denoising step
+  mode: pooled
+  # constant     -> w everywhere
+  # linear_decay -> w * (1 - step/(total-1)); strong early, fades to 0 at the end
+  # early_only   -> w for first half of steps, 0 for second half
+  schedule: constant
+
+hydra:
+  job:
+    chdir: false

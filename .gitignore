@@ -1,23 +1,56 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+.eggs/
 dist/
 build/
 *.egg
-.venv/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.cover
+.tox/
 venv/
+.venv/
 env/
 
-# ML artifacts
+# ML / checkpoints (large binaries)
 *.pt
 *.pth
 *.ckpt
 *.safetensors
 *.bin
+*.onnx
+*.h5
 wandb/
 runs/
 logs/
+lightning_logs/
+tensorboard/
+events.out.tfevents.*
+
+# Hugging Face cache if ever created inside the repo
+.cache/
+
+# Hydra (run logs, resolved configs, multirun dirs)
+code/outputs/
+outputs/
+multirun/
+.hydra/
+
+# Project: regenerated artifacts (models, samples, metadata under results/)
+results/
+
+# Local datasets and DreamBooth-style generated assets
+dataset/
+class_priors/
+data/class_images/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -25,17 +58,20 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+*~
 
 # IDE
 .vscode/
 .idea/
 
-# Env
+# Env & secrets
 .env
+.env.*
+!.env.example
 
-#papers
+# Papers
 final_deliverables.pdf
 paper.pdf
 
-# Cloned repos
+# Cloned / vendored reference repos
 dreambooth/
