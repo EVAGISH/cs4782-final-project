@@ -1,0 +1,18 @@
+{
+  "subject": "backpack",
+  "method": "full",
+  "trainable_params": 859520964,
+  "total_unet_params": 859520964,
+  "trainable_pct": 100.0,
+  "train_time_sec": 709.693281173706,
+  "peak_vram_gb": 11.946989056,
+  "ckpt_size_mb": 4268.723377,
+  "max_train_steps": 1000,
+  "learning_rate": 5e-06,
+  "prior_loss_weight": 1.0,
+  "lora_rank": null,
+  "lora_alpha": null,
+  "pretrained_model": "runwayml/stable-diffusion-v1-5",
+  "instance_prompt": "a photo of sks backpack",
+  "class_prompt": "a photo of a backpack"
+}

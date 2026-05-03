@@ -8,3 +8,5 @@ torchvision
 ftfy
 scipy
 tqdm
+matplotlib
+bitsandbytes; platform_system != "Windows"

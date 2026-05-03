@@ -23,7 +23,14 @@ def parse_args():
     parser.add_argument("--lora_path", type=str, default=None,
                         help="Path to a directory containing lora_weights.pt and lora_config.json")
     parser.add_argument("--prompts", type=str, nargs="+", default=None)
-    parser.add_argument("--prompts_file", type=str, default=None)
+    parser.add_argument("--prompts_file", type=str, default=None,
+                        help="Path to a plain text file with one prompt per line")
+    parser.add_argument("--prompts_template", type=str, default=None,
+                        help="Path to a JSON list of prompt templates with {V} and {class} placeholders")
+    parser.add_argument("--class_noun", type=str, default=None,
+                        help="Class noun used to fill {class} in --prompts_template")
+    parser.add_argument("--v_token", type=str, default="[V]",
+                        help="Identifier substituted for {V}; pass empty string for the base SD baseline")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--num_images_per_prompt", type=int, default=4)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
@@ -35,13 +42,24 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if args.prompts_file:
+    if args.prompts_template:
+        if args.class_noun is None:
+            raise ValueError("--class_noun is required when using --prompts_template")
+        with open(args.prompts_template, "r") as f:
+            templates = json.load(f)
+        v = args.v_token if args.v_token else ""
+        prompts = []
+        for t in templates:
+            resolved = t.format(V=v, **{"class": args.class_noun})
+            resolved = " ".join(resolved.split())
+            prompts.append(resolved)
+    elif args.prompts_file:
         with open(args.prompts_file, "r") as f:
             prompts = [line.strip() for line in f if line.strip()]
     elif args.prompts:
         prompts = args.prompts
     else:
-        raise ValueError("Provide either --prompts or --prompts_file")
+        raise ValueError("Provide one of --prompts, --prompts_file, or --prompts_template")
 
     device = get_device()
     print(f"Using device: {device}")
