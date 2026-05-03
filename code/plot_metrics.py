@@ -393,6 +393,128 @@ def plot_per_subject_bars(rows, out_path):
     print(f"  wrote {out_path}")
 
 
+def load_lambda_ablation(path="results/lora_lambda_ablation.csv"):
+    """Read the LoRA lambda ablation CSV. Returns ordered list of dicts."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    rows = []
+    with open(p) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                row["dino"] = float(row["dino"])
+                row["clip_i"] = float(row["clip_i"])
+                row["clip_t"] = float(row["clip_t"])
+            except (ValueError, KeyError):
+                continue
+            rows.append(row)
+    return rows
+
+
+def plot_lambda_ablation(out_path, ablation_csv="results/lora_lambda_ablation.csv"):
+    """Line chart showing how DINO / CLIP-I / CLIP-T vary with prior-loss weight λ.
+    Includes horizontal reference lines for Full FT (upper bound) and Base SD (lower)."""
+    rows = load_lambda_ablation(ablation_csv)
+    if not rows:
+        print("  (lambda ablation skipped: results/lora_lambda_ablation.csv not found)")
+        return
+
+    lora_rows = [r for r in rows if r["method"] == "lora"]
+    full_row = next((r for r in rows if r["method"] == "full"), None)
+    base_row = next((r for r in rows if r["method"] == "base"), None)
+
+    lora_rows.sort(key=lambda r: float(r["prior_loss_weight"]))
+    if not lora_rows:
+        print("  (lambda ablation skipped: no LoRA rows in CSV)")
+        return
+
+    lambdas = [float(r["prior_loss_weight"]) for r in lora_rows]
+    dino  = [r["dino"]   for r in lora_rows]
+    clipi = [r["clip_i"] for r in lora_rows]
+    clipt = [r["clip_t"] for r in lora_rows]
+
+    fig = plt.figure(figsize=(13, 9.5))
+    ax = fig.add_axes([0.10, 0.30, 0.84, 0.52])
+
+    metric_specs = [
+        ("DINO",   dino,  PALETTE["accent"], "o"),
+        ("CLIP-I", clipi, PALETTE["fg"],     "s"),
+        ("CLIP-T", clipt, PALETTE["lora_bar"], "^"),
+    ]
+
+    for label, values, color, marker in metric_specs:
+        ax.plot(lambdas, values, color=color, linewidth=3,
+                marker=marker, markersize=14,
+                markerfacecolor=color, markeredgecolor=PALETTE["bg"],
+                markeredgewidth=2.5, zorder=3, label=label)
+        for x, y in zip(lambdas, values):
+            ax.annotate(f"{y:.3f}",
+                        xy=(x, y), xytext=(0, 14),
+                        textcoords="offset points",
+                        ha="center", va="bottom",
+                        fontsize=FS_VALUE, color=PALETTE["fg"],
+                        fontfamily=FONT_MONO, fontweight="bold")
+
+    if full_row is not None:
+        ax.axhline(full_row["dino"], color=PALETTE["accent"],
+                   linestyle=":", linewidth=1.5, alpha=0.5)
+        ax.text(max(lambdas) * 1.04, full_row["dino"], " Full FT DINO",
+                va="center", ha="left",
+                fontsize=FS_SUB, color=PALETTE["accent"],
+                fontfamily=FONT_SANS, style="italic")
+
+    if base_row is not None:
+        ax.axhline(base_row["dino"], color=PALETTE["muted"],
+                   linestyle=":", linewidth=1.5, alpha=0.5)
+        ax.text(max(lambdas) * 1.04, base_row["dino"], " Base SD DINO",
+                va="center", ha="left",
+                fontsize=FS_SUB, color=PALETTE["muted"],
+                fontfamily=FONT_SANS, style="italic")
+
+    sweet = max(lora_rows, key=lambda r: r["dino"])
+    sweet_lambda = float(sweet["prior_loss_weight"])
+    ax.axvspan(sweet_lambda - 0.05, sweet_lambda + 0.05,
+               color=PALETTE["accent"], alpha=0.06, zorder=0)
+    ax.text(sweet_lambda, 0.78, "sweet spot",
+            ha="center", va="bottom",
+            fontsize=FS_SUB, color=PALETTE["accent"],
+            fontfamily=FONT_SANS, style="italic")
+
+    ax.set_xticks(lambdas)
+    ax.set_xticklabels([f"λ = {l}" for l in lambdas],
+                       fontsize=FS_HEADER, color=PALETTE["fg"],
+                       fontfamily=FONT_SANS, fontweight="bold")
+    ax.set_ylim(0.3, 0.85)
+    ax.set_yticks([0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+    ax.set_yticklabels([f"{v:.1f}" for v in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]],
+                       fontsize=FS_TICK, color=PALETTE["muted"],
+                       fontfamily=FONT_MONO)
+    ax.set_xlim(min(lambdas) - 0.08, max(lambdas) + 0.20)
+    ax.tick_params(length=0, pad=8)
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3,
+               frameon=False, fontsize=FS_LEGEND,
+               bbox_to_anchor=(0.5, 0.21),
+               labelcolor=PALETTE["fg"], handlelength=2.5,
+               columnspacing=2.5, handletextpad=0.7)
+
+    add_title(fig, "Prior-loss weight · LoRA ablation on dog")
+    add_caption(
+        fig,
+        "Both subject metrics peak at λ=0.5 — the LoRA-specific sweet spot. λ=1.0 "
+        "over-regularizes (subject under-fit); λ=0.1 starts to drift on prompts. "
+        "Validates the paper's claim that prior preservation regularizes against "
+        "language drift, while showing LoRA prefers a weaker prior than Full DreamBooth.")
+
+    fig.savefig(out_path, format="svg", bbox_inches=None, facecolor=PALETTE["bg"])
+    fig.savefig(out_path.with_suffix(".png"), format="png", dpi=200,
+                bbox_inches=None, facecolor=PALETTE["bg"])
+    plt.close(fig)
+    print(f"  wrote {out_path}")
+
+
 def plot_efficiency(runs, out_path):
     """4-panel bar chart contrasting Full FT vs LoRA on compute cost.
     Panels: trainable %, train time, peak VRAM, checkpoint size."""
@@ -550,6 +672,7 @@ def main():
         print(f"Loaded {len(runs)} run_stats.json files")
         plot_efficiency(runs, out_dir / "efficiency.svg")
 
+    plot_lambda_ablation(out_dir / "lambda_ablation.svg")
     plot_loss_curves(args.loss_history, out_dir / "loss_curves.svg")
 
 
