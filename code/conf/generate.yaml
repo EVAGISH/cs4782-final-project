@@ -8,18 +8,20 @@ task: null
 model:
   # Can be a saved full pipeline directory, a LoRA directory, or a Hugging Face model id.
   # video base id: ali-vilab/text-to-video-ms-1.7b
-  model_path: ../results/bird_video_lora_2
+  model_path: ../results/backpack_test_lora
 
 inference:
   prompts:
-    - a video of a sks bird flying over a lake
-    - a video of a sks bird perched on a branch
-    - a video of a sks bird in flight against a sunset sky
-    - a video of a sks bird walking on grass
+    - a photo of a sks backpack
+    - a sks backpack on the beach
+    - a sks backpack in the snow
+    - a sks backpack on top of a wooden floor
+    - a sks backpack with a mountain in the background
+    - a sks backpack with the Eiffel Tower in the background
   prompts_file: null
-  output_dir: ../results/bird_video_lora_samples
-  num_images_per_prompt: 2
-  guidance_scale: 9.0
+  output_dir: ../results/backpack_test_lora_samples
+  num_images_per_prompt: 4
+  guidance_scale: 7.5
   num_inference_steps: 50
   # video-only knobs (ignored when task == image)
   num_frames: 16
@@ -28,8 +30,10 @@ inference:
 runtime:
   seed: 0
 
-# Classifier-guidance-style biasing toward a VAE latent of the subject images.
-# Image task only. After each scheduler step:
+# Experimental, opt-in: classifier-guidance-style biasing toward a VAE latent of
+# the subject images. Image task only. Implementation lives in code/anchor.py;
+# leave anchor.enabled: false for the standard SD inference path.
+# After each scheduler step:
 #   latents <- (1 - w_t) * latents + w_t * noised_anchor
 # where the anchor is selected per `mode` and w_t is computed per `schedule`.
 anchor:
