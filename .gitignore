@@ -44,8 +44,11 @@ outputs/
 multirun/
 .hydra/
 
-# Project: regenerated artifacts (models, samples, metadata under results/)
-results/
+# Project: regenerated experiment artifacts
+results/*
+!results/.gitkeep
+code/download_dreambooth_dataset.py
+code/guidance_variants.json
 
 # Local datasets and DreamBooth-style generated assets
 dataset/

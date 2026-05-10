@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 
-# Compressed stack of RGB uint8 images (N, H, W, 3). Extensible to video (N, T, H, W, 3) later.
+# Compressed stack of RGB uint8 images (N, H, W, 3).
 CLASS_PRIORS_ARRAY_KEY = "images"
 
 

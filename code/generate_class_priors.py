@@ -1,4 +1,7 @@
+import json
 import random
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import hydra
@@ -10,6 +13,10 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from class_priors import append_class_prior_images, count_class_prior_images, pil_to_uint8_rgb
+from hydra_compat import patch_argparse_help_for_hydra
+
+
+patch_argparse_help_for_hydra()
 
 
 def get_device():
@@ -37,20 +44,39 @@ def resolve_config_paths(cfg: DictConfig):
 def main(cfg: DictConfig):
     validate_config(cfg)
     resolve_config_paths(cfg)
-    print(OmegaConf.to_yaml(cfg))
+    resolved_cfg_yaml = OmegaConf.to_yaml(cfg, resolve=True)
+    print(resolved_cfg_yaml)
 
     torch.manual_seed(cfg.runtime.seed)
     random.seed(cfg.runtime.seed)
+    started_at = datetime.now(timezone.utc)
+    start_time = time.time()
 
     device = get_device()
     weight_dtype = torch.float32
     print(f"Using device: {device}")
     print(f"Using dtype: {weight_dtype}")
     output_npz = Path(cfg.prior_generation.output_npz)
+    output_npz.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_npz.with_suffix(".config.yaml"), "w") as f:
+        f.write(resolved_cfg_yaml)
 
     n_existing = count_class_prior_images(output_npz)
     if n_existing >= cfg.prior_generation.num_images:
         print(f"{output_npz} already contains {n_existing} class priors; nothing to generate.")
+        with open(output_npz.with_suffix(".summary.json"), "w") as f:
+            json.dump({
+                "started_at_utc": started_at.isoformat(),
+                "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+                "duration_seconds": time.time() - start_time,
+                "device": str(device),
+                "cuda_device": torch.cuda.get_device_name(0) if device.type == "cuda" else None,
+                "torch_version": torch.__version__,
+                "target_num_images": cfg.prior_generation.num_images,
+                "existing_num_images": n_existing,
+                "generated_num_images": 0,
+                "output_npz": str(output_npz),
+            }, f, indent=2)
         return
 
     num_to_generate = cfg.prior_generation.num_images - n_existing
@@ -90,6 +116,20 @@ def main(cfg: DictConfig):
 
     append_class_prior_images(output_npz, np.stack(rows, axis=0))
     print(f"Saved {cfg.prior_generation.num_images} total class priors to {output_npz}")
+    with open(output_npz.with_suffix(".summary.json"), "w") as f:
+        json.dump({
+            "started_at_utc": started_at.isoformat(),
+            "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+            "duration_seconds": time.time() - start_time,
+            "device": str(device),
+            "cuda_device": torch.cuda.get_device_name(0) if device.type == "cuda" else None,
+            "torch_version": torch.__version__,
+            "target_num_images": cfg.prior_generation.num_images,
+            "existing_num_images": n_existing,
+            "generated_num_images": num_to_generate,
+            "output_npz": str(output_npz),
+            "preview_dir": str(preview_dir) if preview_dir is not None else None,
+        }, f, indent=2)
 
     pipeline.to("cpu")
     del pipeline
