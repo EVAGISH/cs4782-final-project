@@ -1,0 +1,25 @@
+model:
+  model_path: ../results/dog6_flux2_lora
+
+inference:
+  prompts:
+    - a photo of a sks dog
+    - a sks dog on the beach
+    - a sks dog in the snow
+    - a sks dog wearing a sombrero
+    - a sks dog with the Eiffel Tower in the background
+    - a sks dog as an astronaut on the moon
+  prompts_file: null
+  output_dir: ../results/dog6_flux2_lora_samples
+  num_images_per_prompt: 4
+  guidance_scale: 1.0            # Klein is distilled; CFG is ignored
+  num_inference_steps: 28
+  resolution: 1024
+  weight_dtype: bf16
+
+runtime:
+  seed: 0
+
+hydra:
+  job:
+    chdir: false

@@ -1,0 +1,24 @@
+defaults:
+  - subject: backpack
+  - _self_
+
+model:
+  # Stable Diffusion v1.5 is the model used for the public reproduction path.
+  pretrained_model: runwayml/stable-diffusion-v1-5
+
+prior_generation:
+  class_prompt: ${subject.class_prompt}
+  output_npz: ${subject.class_images_npz}
+  num_images: 200
+  batch_size: 16
+  num_inference_steps: 50
+  guidance_scale: 7.5
+  save_previews: true
+  preview_dir: ${subject.class_prior_preview_dir}
+
+runtime:
+  seed: 0
+
+hydra:
+  job:
+    chdir: false

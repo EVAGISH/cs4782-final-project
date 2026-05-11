@@ -1,0 +1,17 @@
+id: dog
+class_name: dog
+unique_token: sks
+instance_prompt: a photo of a sks dog
+class_prompt: a photo of a dog
+instance_data_dir: dataset/dog
+class_images_npz: class_priors/dog_class_priors.npz
+train_output_dir: results/local_runs/trained_lora/dog/seed_0
+samples_output_dir: results/local_runs/results/dog/seed_0/baseline
+class_prior_preview_dir: class_priors/dog_previews
+prompts:
+  - a photo of a sks dog
+  - a sks dog on the beach
+  - a sks dog in the snow
+  - a sks dog on a wooden floor
+  - a sks dog with a mountain in the background
+  - a sks dog with the Eiffel Tower in the background

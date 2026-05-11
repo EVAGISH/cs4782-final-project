@@ -1,0 +1,37 @@
+defaults:
+  - subject: backpack
+  - _self_
+
+# Public reproduction path: image DreamBooth / LoRA on Stable Diffusion v1.5.
+task: image
+
+model:
+  # image options: stabilityai/stable-diffusion-xl-base-1.0 | runwayml/stable-diffusion-v1-5 | common-canvas/CommonCanvas-XL-C
+  # video option : ali-vilab/text-to-video-ms-1.7b
+  pretrained_model: runwayml/stable-diffusion-v1-5
+
+data:
+  instance_prompt: ${subject.instance_prompt}
+  resolution: 512
+  instance_data_dir: ${subject.instance_data_dir}
+  class_images_npz: ${subject.class_images_npz}
+  class_prompt: ${subject.class_prompt}
+
+training:
+  output_dir: ${subject.train_output_dir}
+  max_train_steps: 1500
+  learning_rate: 1e-4
+  prior_loss_weight: 1.0
+  train_batch_size: 1
+  gradient_accumulation_steps: 1
+  log_every_steps: 25
+  seed: 0
+
+lora:
+  enabled: true
+  rank: 16
+  alpha: 4.0
+
+hydra:
+  job:
+    chdir: false
