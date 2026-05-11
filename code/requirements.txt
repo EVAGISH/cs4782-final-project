@@ -11,3 +11,5 @@ ftfy
 scipy
 tqdm
 huggingface_hub
+matplotlib
+bitsandbytes; platform_system != "Windows"

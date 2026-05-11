@@ -263,6 +263,13 @@ def main(cfg: DictConfig):
                 optimizer_steps += 1
                 pending_accumulation_steps = 0
 
+            loss_history.append({
+                "step": global_step,
+                "loss": loss.item(),
+                "loss_inst": loss_instance.item(),
+                "loss_cls": loss_class.item(),
+            })
+
             progress_bar.update(1)
             global_step += 1
             avg_loss = sum(item["loss"] for item in recent_losses) / len(recent_losses)

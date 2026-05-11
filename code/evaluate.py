@@ -63,6 +63,34 @@ def compute_dino_embeddings(images, model, transform, device="cuda"):
     return torch.cat(embeddings, dim=0)
 
 
+def _as_image_tensor(emb, model):
+    if isinstance(emb, torch.Tensor):
+        return emb
+    if hasattr(emb, "image_embeds") and emb.image_embeds is not None:
+        return emb.image_embeds
+    if hasattr(emb, "pooler_output") and emb.pooler_output is not None:
+        pooled = emb.pooler_output
+        proj_dim = getattr(model.config, "projection_dim", None)
+        if proj_dim is not None and pooled.shape[-1] == proj_dim:
+            return pooled
+        return model.visual_projection(pooled)
+    raise TypeError(f"Unexpected CLIP image output: {type(emb)}")
+
+
+def _as_text_tensor(emb, model):
+    if isinstance(emb, torch.Tensor):
+        return emb
+    if hasattr(emb, "text_embeds") and emb.text_embeds is not None:
+        return emb.text_embeds
+    if hasattr(emb, "pooler_output") and emb.pooler_output is not None:
+        pooled = emb.pooler_output
+        proj_dim = getattr(model.config, "projection_dim", None)
+        if proj_dim is not None and pooled.shape[-1] == proj_dim:
+            return pooled
+        return model.text_projection(pooled)
+    raise TypeError(f"Unexpected CLIP text output: {type(emb)}")
+
+
 def compute_clip_image_embeddings(images, processor, model, device="cuda"):
     embeddings = []
     with torch.no_grad():
