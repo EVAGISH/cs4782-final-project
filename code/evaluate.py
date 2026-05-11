@@ -52,12 +52,41 @@ def compute_dino_embeddings(images, device="cuda"):
     return torch.cat(embeddings, dim=0)
 
 
+def _as_image_tensor(emb, model):
+    if isinstance(emb, torch.Tensor):
+        return emb
+    if hasattr(emb, "image_embeds") and emb.image_embeds is not None:
+        return emb.image_embeds
+    if hasattr(emb, "pooler_output") and emb.pooler_output is not None:
+        pooled = emb.pooler_output
+        proj_dim = getattr(model.config, "projection_dim", None)
+        if proj_dim is not None and pooled.shape[-1] == proj_dim:
+            return pooled
+        return model.visual_projection(pooled)
+    raise TypeError(f"Unexpected CLIP image output: {type(emb)}")
+
+
+def _as_text_tensor(emb, model):
+    if isinstance(emb, torch.Tensor):
+        return emb
+    if hasattr(emb, "text_embeds") and emb.text_embeds is not None:
+        return emb.text_embeds
+    if hasattr(emb, "pooler_output") and emb.pooler_output is not None:
+        pooled = emb.pooler_output
+        proj_dim = getattr(model.config, "projection_dim", None)
+        if proj_dim is not None and pooled.shape[-1] == proj_dim:
+            return pooled
+        return model.text_projection(pooled)
+    raise TypeError(f"Unexpected CLIP text output: {type(emb)}")
+
+
 def compute_clip_image_embeddings(images, processor, model, device="cuda"):
     embeddings = []
     with torch.no_grad():
         for img in images:
             inputs = processor(images=img, return_tensors="pt").to(device)
-            emb = model.get_image_features(**inputs)
+            emb = model.get_image_features(pixel_values=inputs["pixel_values"])
+            emb = _as_image_tensor(emb, model)
             embeddings.append(F.normalize(emb, dim=-1))
     return torch.cat(embeddings, dim=0)
 
@@ -68,6 +97,7 @@ def compute_clip_text_embeddings(prompts, tokenizer, model, device="cuda"):
         for prompt in prompts:
             inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
             emb = model.get_text_features(**inputs)
+            emb = _as_text_tensor(emb, model)
             embeddings.append(F.normalize(emb, dim=-1))
     return torch.cat(embeddings, dim=0)
 

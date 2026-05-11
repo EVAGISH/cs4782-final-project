@@ -2,6 +2,7 @@ import argparse
 import json
 import math
 import random
+import time
 from pathlib import Path
 
 import torch
@@ -84,7 +85,7 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--instance_prompt", type=str, required=True)
     parser.add_argument("--class_prompt", type=str, required=True)
-    parser.add_argument("--num_class_images", type=int, default=1000)
+    parser.add_argument("--num_class_images", type=int, default=200)
     parser.add_argument("--max_train_steps", type=int, default=1000)
     parser.add_argument("--learning_rate", type=float, default=5e-6)
     parser.add_argument("--prior_loss_weight", type=float, default=1.0)
@@ -232,6 +233,11 @@ def main():
     else:
         trainable_params = list(unet.parameters())
 
+    trainable_count = sum(p.numel() for p in trainable_params)
+    total_unet_count = sum(p.numel() for p in unet.parameters())
+    print(f"Trainable: {trainable_count:,} / UNet total: {total_unet_count:,} "
+          f"({100 * trainable_count / total_unet_count:.4f}% of UNet)")
+
     optimizer_cls = bnb.optim.AdamW8bit if HAS_BNB else torch.optim.AdamW
     optimizer = optimizer_cls(trainable_params, lr=args.learning_rate)
 
@@ -259,6 +265,11 @@ def main():
 
     progress_bar = tqdm(range(args.max_train_steps), desc="Training")
     global_step = 0
+    loss_history = []
+
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+    train_start_time = time.time()
 
     while global_step < args.max_train_steps:
         for batch in dataloader:
@@ -303,9 +314,21 @@ def main():
                 scaler.update()
                 optimizer.zero_grad()
 
+            loss_history.append({
+                "step": global_step,
+                "loss": loss.item(),
+                "loss_inst": loss_instance.item(),
+                "loss_cls": loss_class.item(),
+            })
+
             progress_bar.update(1)
             progress_bar.set_postfix(loss=loss.item(), loss_inst=loss_instance.item(), loss_cls=loss_class.item())
             global_step += 1
+
+    train_time_sec = time.time() - train_start_time
+    peak_vram_gb = (
+        torch.cuda.max_memory_allocated() / 1e9 if device.type == "cuda" else 0.0
+    )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -328,6 +351,36 @@ def main():
         )
         pipeline.save_pretrained(output_dir)
         print(f"Model saved to {output_dir}")
+
+    ckpt_size_mb = sum(
+        f.stat().st_size for f in output_dir.rglob("*") if f.is_file()
+    ) / 1e6
+
+    run_stats = {
+        "subject": Path(args.instance_data_dir).name,
+        "method": "lora" if args.use_lora else "full",
+        "trainable_params": trainable_count,
+        "total_unet_params": total_unet_count,
+        "trainable_pct": 100 * trainable_count / total_unet_count,
+        "train_time_sec": train_time_sec,
+        "peak_vram_gb": peak_vram_gb,
+        "ckpt_size_mb": ckpt_size_mb,
+        "max_train_steps": args.max_train_steps,
+        "learning_rate": args.learning_rate,
+        "prior_loss_weight": args.prior_loss_weight,
+        "lora_rank": args.lora_rank if args.use_lora else None,
+        "lora_alpha": args.lora_alpha if args.use_lora else None,
+        "pretrained_model": args.pretrained_model,
+        "instance_prompt": args.instance_prompt,
+        "class_prompt": args.class_prompt,
+    }
+    with open(output_dir / "run_stats.json", "w") as f:
+        json.dump(run_stats, f, indent=2)
+    with open(output_dir / "loss_history.json", "w") as f:
+        json.dump(loss_history, f)
+
+    print(f"\nRun stats: {train_time_sec:.0f}s | peak VRAM {peak_vram_gb:.2f} GB | "
+          f"checkpoint {ckpt_size_mb:.1f} MB | trainable {trainable_count:,}")
 
 
 if __name__ == "__main__":

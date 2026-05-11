@@ -1,0 +1,6 @@
+subject,method,prior_loss_weight,dino,clip_i,clip_t,notes
+dog,lora,1.0,0.4774,0.7501,0.3413,LoRA r=16 lr=1e-4 prior=1.0 -- under-fit on subject
+dog,lora,0.5,0.5747,0.7785,0.3376,LoRA r=16 lr=1e-4 prior=0.5 -- sweet spot
+dog,lora,0.1,0.5495,0.7707,0.3282,LoRA r=16 lr=1e-4 prior=0.1 -- prior too weak, mild drift
+dog,full,1.0,0.6473,0.7931,0.3261,Reference: Full FT (upper bound)
+dog,base,N/A,0.1927,0.6679,0.3437,Reference: base SD zero-shot (lower bound)
