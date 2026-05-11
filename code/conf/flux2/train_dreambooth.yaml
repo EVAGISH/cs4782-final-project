@@ -1,0 +1,37 @@
+# DreamBooth + LoRA + prior preservation for FLUX.2-klein-4B (image only).
+# FLUX.2 is a rectified-flow MMDiT with a Qwen3 text encoder and a custom VAE.
+# This config is fully separate from ../train_dreambooth.yaml (which targets
+# SD/UNet/Text-to-Video).
+
+model:
+  pretrained_model: black-forest-labs/FLUX.2-klein-4B
+
+data:
+  instance_prompt: a photo of a sks dog
+  class_prompt: a photo of a dog
+  instance_data_dir: ../dataset/dog6
+  class_images_npz: ../class_priors/dog_class_priors_flux2.npz
+  resolution: 512                # must be divisible by 16 (vae_scale_factor * 2)
+  max_sequence_length: 512       # Qwen3 cap
+
+training:
+  output_dir: ../results/dog6_flux2_lora
+  max_train_steps: 800
+  learning_rate: 1.0e-4
+  prior_loss_weight: 1.0
+  train_batch_size: 1
+  gradient_accumulation_steps: 1
+  log_every_steps: 25
+  seed: 0
+  weighting_scheme: logit_normal # uniform | logit_normal
+  gradient_checkpointing: true
+  weight_dtype: bf16
+
+lora:
+  enabled: true
+  rank: 16
+  alpha: 16.0                    # scaling = alpha / rank = 1.0
+
+hydra:
+  job:
+    chdir: false
