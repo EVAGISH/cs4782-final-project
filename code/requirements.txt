@@ -7,7 +7,7 @@ accelerate
 safetensors
 Pillow
 torchvision
-torchcodec
 ftfy
 scipy
 tqdm
+huggingface_hub

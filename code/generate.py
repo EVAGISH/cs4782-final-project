@@ -1,17 +1,21 @@
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import hydra
 import torch
-from diffusers import StableDiffusionPipeline, TextToVideoSDPipeline
+from diffusers import StableDiffusionPipeline
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
 import anchor
+import semantic_guidance
+from hydra_compat import patch_argparse_help_for_hydra
 from lora import get_lora_parameter_names, patch_unet_with_lora, summarize_lora_state_dict
 
 
-VIDEO_PIPELINE_CLASS_NAMES = {"TextToVideoSDPipeline"}
+patch_argparse_help_for_hydra()
 
 
 def get_device():
@@ -23,18 +27,20 @@ def get_device():
 
 
 def validate_config(cfg: DictConfig):
-    if cfg.task is not None and cfg.task not in {"image", "video"}:
-        raise ValueError(f"task must be 'image', 'video', or null, got {cfg.task!r}")
+    if cfg.task is not None and cfg.task != "image":
+        raise ValueError(f"task must be 'image' or null, got {cfg.task!r}")
     if cfg.inference.prompts_file is None and not cfg.inference.prompts:
         raise ValueError("Provide inference.prompts or inference.prompts_file")
     if cfg.inference.num_images_per_prompt < 1:
         raise ValueError("inference.num_images_per_prompt must be at least 1")
-    if cfg.inference.num_frames < 1:
-        raise ValueError("inference.num_frames must be at least 1")
-    if cfg.inference.fps < 1:
-        raise ValueError("inference.fps must be at least 1")
+    if cfg.inference.height < 1 or cfg.inference.width < 1:
+        raise ValueError("inference.height and inference.width must be positive")
+    if cfg.inference.height % 8 != 0 or cfg.inference.width % 8 != 0:
+        raise ValueError("inference.height and inference.width must be divisible by 8")
     if cfg.anchor.enabled:
         anchor.validate(cfg)
+    if cfg.semantic_guidance.enabled:
+        semantic_guidance.validate(cfg)
 
 
 def resolve_config_paths(cfg: DictConfig):
@@ -43,6 +49,55 @@ def resolve_config_paths(cfg: DictConfig):
         cfg.inference.prompts_file = to_absolute_path(cfg.inference.prompts_file)
     if cfg.anchor.enabled:
         anchor.resolve_paths(cfg)
+    if cfg.semantic_guidance.enabled:
+        semantic_guidance.resolve_paths(cfg)
+
+
+def _merge_callback_kwargs(callback_kwargs_list: list[dict]) -> dict:
+    """Compose multiple Diffusers step-end callbacks into one callback config."""
+    callback_kwargs_list = [kwargs for kwargs in callback_kwargs_list if kwargs]
+    if not callback_kwargs_list:
+        return {}
+    if len(callback_kwargs_list) == 1:
+        return callback_kwargs_list[0]
+
+    callbacks = [kwargs["callback_on_step_end"] for kwargs in callback_kwargs_list]
+    tensor_inputs = []
+    seen_inputs = set()
+    for kwargs in callback_kwargs_list:
+        for name in kwargs.get("callback_on_step_end_tensor_inputs", []):
+            if name not in seen_inputs:
+                tensor_inputs.append(name)
+                seen_inputs.add(name)
+
+    def _callback(pipe, step_idx, timestep, callback_kwargs):
+        working_kwargs = dict(callback_kwargs)
+        returned_kwargs = {}
+        for callback in callbacks:
+            updates = callback(pipe, step_idx, timestep, working_kwargs) or {}
+            working_kwargs.update(updates)
+            returned_kwargs.update(updates)
+        return returned_kwargs
+
+    return {
+        "callback_on_step_end": _callback,
+        "callback_on_step_end_tensor_inputs": tensor_inputs,
+    }
+
+
+def _semantic_diagnostics_path(cfg, output_dir: Path, prompt_idx: int, sample_idx: int, seed: int) -> Path | None:
+    sg = cfg.semantic_guidance
+    if not getattr(sg, "diagnostics_enabled", False):
+        return None
+
+    diagnostics_dir = getattr(sg, "diagnostics_dir", None)
+    if diagnostics_dir:
+        base_dir = Path(diagnostics_dir)
+        if not base_dir.is_absolute():
+            base_dir = output_dir / base_dir
+    else:
+        base_dir = output_dir / "semantic_guidance_diagnostics"
+    return base_dir / f"prompt_{prompt_idx:02d}_sample_{sample_idx:02d}_seed{seed}.csv"
 
 
 def resolve_model_path(model_path: str) -> str:
@@ -52,28 +107,12 @@ def resolve_model_path(model_path: str) -> str:
     return model_path
 
 
-def _detect_task_from_pipeline_dir(model_dir: Path) -> str | None:
-    """Read model_index.json from a saved pipeline dir to infer image vs video."""
-    index_path = model_dir / "model_index.json"
-    if not index_path.exists():
-        return None
-    with open(index_path, "r") as f:
-        index = json.load(f)
-    class_name = index.get("_class_name")
-    if class_name in VIDEO_PIPELINE_CLASS_NAMES:
-        return "video"
-    return "image"
-
-
-def _pipeline_kwargs_for_task(task: str, weight_dtype: torch.dtype) -> dict:
-    if task == "image":
-        return {"torch_dtype": weight_dtype, "safety_checker": None}
-    return {"torch_dtype": weight_dtype}
-
-
-def _load_base_pipeline(base_model: str, task: str, weight_dtype: torch.dtype):
-    cls = TextToVideoSDPipeline if task == "video" else StableDiffusionPipeline
-    return cls.from_pretrained(base_model, **_pipeline_kwargs_for_task(task, weight_dtype))
+def _load_base_pipeline(base_model: str, weight_dtype: torch.dtype):
+    return StableDiffusionPipeline.from_pretrained(
+        base_model,
+        torch_dtype=weight_dtype,
+        safety_checker=None,
+    )
 
 
 def load_pipeline(
@@ -87,8 +126,7 @@ def load_pipeline(
     Resolution order for `task`:
       1. `task_override` from config if not None.
       2. `task` field of `lora_config.json` (LoRA dir case).
-      3. `_class_name` in `model_index.json` (saved-pipeline-dir case).
-      4. Default to "image" for plain HF model ids.
+      3. Default to "image" for saved pipelines and plain HF model ids.
     """
     resolved_model_path = resolve_model_path(model_path)
     model_dir = Path(resolved_model_path)
@@ -99,8 +137,10 @@ def load_pipeline(
         with open(lora_config_path, "r") as f:
             lora_config = json.load(f)
         task = task_override or lora_config.get("task", "image")
+        if task != "image":
+            raise ValueError(f"Only image LoRA generation is supported, got task={task!r}")
 
-        pipeline = _load_base_pipeline(lora_config["pretrained_model"], task, weight_dtype).to(device)
+        pipeline = _load_base_pipeline(lora_config["pretrained_model"], weight_dtype).to(device)
 
         patch_unet_with_lora(pipeline.unet, rank=lora_config["rank"], alpha=lora_config["alpha"])
         state = torch.load(lora_weights_path, map_location="cpu")
@@ -129,12 +169,11 @@ def load_pipeline(
         )
         return pipeline, task
 
-    if model_dir.is_dir():
-        task = task_override or _detect_task_from_pipeline_dir(model_dir) or "image"
-    else:
-        task = task_override or "image"
+    task = task_override or "image"
+    if task != "image":
+        raise ValueError(f"Only image generation is supported, got task={task!r}")
 
-    pipeline = _load_base_pipeline(resolved_model_path, task, weight_dtype).to(device)
+    pipeline = _load_base_pipeline(resolved_model_path, weight_dtype).to(device)
     if model_dir.is_dir():
         print(f"Loaded full pipeline from {model_dir} (task={task})")
     else:
@@ -146,7 +185,15 @@ def load_pipeline(
 def main(cfg: DictConfig):
     validate_config(cfg)
     resolve_config_paths(cfg)
-    print(OmegaConf.to_yaml(cfg))
+    resolved_cfg_yaml = OmegaConf.to_yaml(cfg, resolve=True)
+    print(resolved_cfg_yaml)
+
+    output_dir = Path(cfg.inference.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_dir / "generate_config.yaml", "w") as f:
+        f.write(resolved_cfg_yaml)
+    started_at = datetime.now(timezone.utc)
+    start_time = time.time()
 
     if cfg.inference.prompts_file:
         with open(cfg.inference.prompts_file, "r") as f:
@@ -161,18 +208,15 @@ def main(cfg: DictConfig):
 
     pipeline, task = load_pipeline(cfg.model.model_path, device, weight_dtype, task_override=cfg.task)
 
-    output_dir = Path(cfg.inference.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     subject_latents = None
     if cfg.anchor.enabled:
-        if task != "image":
-            print(f"anchor.enabled=true but task={task!r}; anchoring is image-only and will be skipped.")
-        else:
-            subject_latents = anchor.prepare(cfg, pipeline, device, weight_dtype)
+        subject_latents = anchor.prepare(cfg, pipeline, device, weight_dtype)
+
+    semantic_state = None
+    if cfg.semantic_guidance.enabled:
+        semantic_state = semantic_guidance.prepare(cfg, pipeline, device, weight_dtype)
 
     metadata = []
-    samples_label = "videos" if task == "video" else "images"
 
     for prompt_idx, prompt in enumerate(prompts):
         prompt_dir = output_dir / f"prompt_{prompt_idx:02d}"
@@ -182,30 +226,10 @@ def main(cfg: DictConfig):
             seed = cfg.runtime.seed + i
             generator = torch.Generator(device).manual_seed(seed)
 
-            if task == "video":
-                # TextToVideoSDPipeline returns .frames as a list with one
-                # ndarray per batch element of shape (F, H, W, 3), uint8.
-                result = pipeline(
-                    prompt,
-                    num_frames=cfg.inference.num_frames,
-                    num_inference_steps=cfg.inference.num_inference_steps,
-                    guidance_scale=cfg.inference.guidance_scale,
-                    generator=generator,
-                    output_type="np",
-                )
-                frames_np = result.frames[0]  # (F, H, W, 3) float in [0,1] or uint8
-                if frames_np.dtype != "uint8":
-                    import numpy as np
-                    frames_np = (np.clip(frames_np, 0.0, 1.0) * 255).astype("uint8")
-                # Torchcodec wants (N, 3, H, W) uint8.
-                frames_chw = torch.from_numpy(frames_np).permute(0, 3, 1, 2).contiguous()
-                filename = f"vid_{i:02d}_seed{seed}.mp4"
-                from torchcodec.encoders import VideoEncoder
-                VideoEncoder(frames_chw, frame_rate=cfg.inference.fps).to_file(prompt_dir / filename)
-            else:
-                extra_kwargs = {}
-                if subject_latents is not None:
-                    extra_kwargs = anchor.build_callback_kwargs(
+            step_callbacks = []
+            if subject_latents is not None:
+                step_callbacks.append(
+                    anchor.build_callback_kwargs(
                         cfg,
                         subject_latents,
                         pipeline.scheduler,
@@ -213,32 +237,60 @@ def main(cfg: DictConfig):
                         device,
                         seed,
                     )
-                image = pipeline(
-                    prompt,
-                    num_inference_steps=cfg.inference.num_inference_steps,
-                    guidance_scale=cfg.inference.guidance_scale,
-                    generator=generator,
-                    **extra_kwargs,
-                ).images[0]
-                filename = f"img_{i:02d}_seed{seed}.png"
-                image.save(prompt_dir / filename)
+                )
+            if semantic_state is not None:
+                step_callbacks.append(
+                    semantic_guidance.build_callback_kwargs(
+                        cfg,
+                        semantic_state,
+                        cfg.inference.num_inference_steps,
+                        diagnostics_path=_semantic_diagnostics_path(cfg, output_dir, prompt_idx, i, seed),
+                    )
+                )
+            extra_kwargs = _merge_callback_kwargs(step_callbacks)
+            image = pipeline(
+                prompt,
+                height=cfg.inference.height,
+                width=cfg.inference.width,
+                num_inference_steps=cfg.inference.num_inference_steps,
+                guidance_scale=cfg.inference.guidance_scale,
+                generator=generator,
+                **extra_kwargs,
+            ).images[0]
+            filename = f"img_{i:02d}_seed{seed}.png"
+            image_path = prompt_dir / filename
+            image.save(image_path)
 
             entry = {
                 "prompt": prompt,
                 "prompt_idx": prompt_idx,
                 "sample_idx": i,
                 "seed": seed,
-                "filename": str(prompt_dir / filename),
+                "filename": str(image_path.relative_to(output_dir)),
             }
-            if task == "video":
-                entry["num_frames"] = cfg.inference.num_frames
-                entry["fps"] = cfg.inference.fps
             metadata.append(entry)
 
     with open(output_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
+    summary = {
+        "started_at_utc": started_at.isoformat(),
+        "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": time.time() - start_time,
+        "task": task,
+        "device": str(device),
+        "cuda_device": torch.cuda.get_device_name(0) if device.type == "cuda" else None,
+        "torch_version": torch.__version__,
+        "model_path": cfg.model.model_path,
+        "num_prompts": len(prompts),
+        "num_outputs": len(metadata),
+        "num_images_per_prompt": cfg.inference.num_images_per_prompt,
+        "anchor": OmegaConf.to_container(cfg.anchor, resolve=True),
+        "semantic_guidance": OmegaConf.to_container(cfg.semantic_guidance, resolve=True),
+    }
+    with open(output_dir / "generate_summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
 
-    print(f"Generated {len(metadata)} {samples_label} in {output_dir}")
+    print(f"Generated {len(metadata)} images in {output_dir}")
 
 
 if __name__ == "__main__":

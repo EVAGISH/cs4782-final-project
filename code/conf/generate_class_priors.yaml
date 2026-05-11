@@ -1,17 +1,20 @@
+defaults:
+  - subject: backpack
+  - _self_
+
 model:
-  # stabilityai/stable-diffusion-xl-refiner-1.0 | runwayml/stable-diffusion-v1-5 | common-canvas/CommonCanvas-XL-C
-  # video: ali-vilab/text-to-video-ms-1.7b | guoyww/animatediff
+  # Stable Diffusion v1.5 is the model used for the public reproduction path.
   pretrained_model: runwayml/stable-diffusion-v1-5
 
 prior_generation:
-  class_prompt: a photo of a backpack
-  output_npz: ../class_priors/backpack_class_priors.npz
+  class_prompt: ${subject.class_prompt}
+  output_npz: ${subject.class_images_npz}
   num_images: 200
   batch_size: 16
   num_inference_steps: 50
   guidance_scale: 7.5
   save_previews: true
-  preview_dir: ../class_priors/backpack_previews
+  preview_dir: ${subject.class_prior_preview_dir}
 
 runtime:
   seed: 0
