@@ -1,0 +1,21 @@
+model:
+  pretrained_model: black-forest-labs/FLUX.2-klein-4B
+
+prior_generation:
+  class_prompt: a photo of a dog
+  output_npz: ../class_priors/dog_class_priors_flux2.npz
+  num_images: 200
+  batch_size: 2
+  num_inference_steps: 28
+  guidance_scale: 1.0            # Klein is distilled; CFG is ignored
+  resolution: 512
+  save_previews: true
+  preview_dir: ../class_priors/dog_previews_flux2
+  weight_dtype: bf16
+
+runtime:
+  seed: 0
+
+hydra:
+  job:
+    chdir: false

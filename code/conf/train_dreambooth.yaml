@@ -6,6 +6,8 @@ defaults:
 task: image
 
 model:
+  # image options: stabilityai/stable-diffusion-xl-base-1.0 | runwayml/stable-diffusion-v1-5 | common-canvas/CommonCanvas-XL-C
+  # video option : ali-vilab/text-to-video-ms-1.7b
   pretrained_model: runwayml/stable-diffusion-v1-5
 
 data:
