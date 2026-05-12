@@ -1,0 +1,17 @@
+# @package _global_
+# Full-UNet DreamBooth. Trains every UNet param, saves a complete
+# StableDiffusionPipeline directory at training.output_dir.
+#
+# Hyperparameters follow the DreamBooth paper / project README:
+#   1000 steps at lr 5e-6 on SD1.5 with prior-preservation loss weight 1.0.
+# A LoRA-style learning rate (1e-4) diverges the full UNet immediately.
+lora:
+  enabled: false
+training:
+  learning_rate: 5e-6
+  max_train_steps: 1000
+  output_dir: ${subject.train_output_dir_full}
+model:
+  model_path: ${subject.train_output_dir_full}
+inference:
+  output_dir: ${subject.samples_output_dir_full}

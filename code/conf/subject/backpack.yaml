@@ -3,10 +3,12 @@ class_name: backpack
 unique_token: sks
 instance_prompt: a photo of a sks backpack
 class_prompt: a photo of a backpack
-instance_data_dir: dataset/backpack
+instance_data_dir: data/instance_images/backpack
 class_images_npz: class_priors/backpack_class_priors.npz
-train_output_dir: results/local_runs/trained_lora/backpack/seed_0
-samples_output_dir: results/local_runs/results/backpack/seed_0/baseline
+train_output_dir_full: results/local_runs/trained_full/backpack/seed_0
+train_output_dir_lora: results/local_runs/trained_lora/backpack/seed_0
+samples_output_dir_full: results/local_runs/results/backpack/seed_0/full
+samples_output_dir_lora: results/local_runs/results/backpack/seed_0/lora
 class_prior_preview_dir: class_priors/backpack_previews
 prompts:
   - a photo of a sks backpack

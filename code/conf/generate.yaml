@@ -1,20 +1,21 @@
 defaults:
   - subject: backpack
+  - mode: full
   - _self_
 
 # Public reproduction path: image generation with Stable Diffusion v1.5.
-# Set to null to auto-detect from the saved checkpoint; override only when
+# Switch mode=lora on the CLI to load LoRA adapters from the LoRA training dir.
+# Set task to null to auto-detect from the saved checkpoint; override only when
 # loading a base Hugging Face model id.
+#
+# model.model_path and inference.output_dir are supplied by the mode group:
+#   mode=full -> subject.train_output_dir_full / subject.samples_output_dir_full
+#   mode=lora -> subject.train_output_dir_lora / subject.samples_output_dir_lora
 task: image
-
-model:
-  # Can be a saved full pipeline directory, a LoRA directory, or a Hugging Face model id.
-  model_path: ${subject.train_output_dir}
 
 inference:
   prompts: ${subject.prompts}
   prompts_file: null
-  output_dir: ${subject.samples_output_dir}
   num_images_per_prompt: 4
   # image-only output size; also used when encoding anchor.subject_dir latents
   height: 512

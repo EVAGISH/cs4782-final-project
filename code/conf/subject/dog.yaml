@@ -3,10 +3,12 @@ class_name: dog
 unique_token: sks
 instance_prompt: a photo of a sks dog
 class_prompt: a photo of a dog
-instance_data_dir: dataset/dog
+instance_data_dir: data/instance_images/dog
 class_images_npz: class_priors/dog_class_priors.npz
-train_output_dir: results/local_runs/trained_lora/dog/seed_0
-samples_output_dir: results/local_runs/results/dog/seed_0/baseline
+train_output_dir_full: results/local_runs/trained_full/dog/seed_0
+train_output_dir_lora: results/local_runs/trained_lora/dog/seed_0
+samples_output_dir_full: results/local_runs/results/dog/seed_0/full
+samples_output_dir_lora: results/local_runs/results/dog/seed_0/lora
 class_prior_preview_dir: class_priors/dog_previews
 prompts:
   - a photo of a sks dog

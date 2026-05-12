@@ -1,0 +1,19 @@
+id: bear_plushie
+class_name: stuffed bear
+unique_token: sks
+instance_prompt: a photo of a sks stuffed bear
+class_prompt: a photo of a stuffed bear
+instance_data_dir: data/instance_images/bear_plushie
+class_images_npz: class_priors/bear_plushie_class_priors.npz
+train_output_dir_full: results/local_runs/trained_full/bear_plushie/seed_0
+train_output_dir_lora: results/local_runs/trained_lora/bear_plushie/seed_0
+samples_output_dir_full: results/local_runs/results/bear_plushie/seed_0/full
+samples_output_dir_lora: results/local_runs/results/bear_plushie/seed_0/lora
+class_prior_preview_dir: class_priors/bear_plushie_previews
+prompts:
+  - a photo of a sks stuffed bear
+  - a sks stuffed bear on the beach
+  - a sks stuffed bear in the snow
+  - a sks stuffed bear on top of a wooden floor
+  - a sks stuffed bear with a mountain in the background
+  - a sks stuffed bear with the Eiffel Tower in the background

@@ -1,0 +1,19 @@
+id: cat
+class_name: cat
+unique_token: sks
+instance_prompt: a photo of a sks cat
+class_prompt: a photo of a cat
+instance_data_dir: data/instance_images/cat
+class_images_npz: class_priors/cat_class_priors.npz
+train_output_dir_full: results/local_runs/trained_full/cat/seed_0
+train_output_dir_lora: results/local_runs/trained_lora/cat/seed_0
+samples_output_dir_full: results/local_runs/results/cat/seed_0/full
+samples_output_dir_lora: results/local_runs/results/cat/seed_0/lora
+class_prior_preview_dir: class_priors/cat_previews
+prompts:
+  - a photo of a sks cat
+  - a sks cat on the beach
+  - a sks cat in the snow
+  - a sks cat on top of a wooden floor
+  - a sks cat with a mountain in the background
+  - a sks cat with the Eiffel Tower in the background

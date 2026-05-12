@@ -1,0 +1,16 @@
+# @package _global_
+# LoRA DreamBooth. Trains only LoRA adapters on UNet attention linears,
+# saves lora_weights.pt + lora_config.json at training.output_dir.
+#
+# LoRA's small parameter count tolerates (and needs) a much higher learning
+# rate than full-UNet training. 1500 steps at lr 1e-4 is the default.
+lora:
+  enabled: true
+training:
+  learning_rate: 1e-4
+  max_train_steps: 1500
+  output_dir: ${subject.train_output_dir_lora}
+model:
+  model_path: ${subject.train_output_dir_lora}
+inference:
+  output_dir: ${subject.samples_output_dir_lora}
