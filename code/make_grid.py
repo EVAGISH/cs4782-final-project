@@ -31,7 +31,7 @@ ACCENT = (194, 65, 12)    # terracotta       (#C2410C)
 BORDER = (220, 215, 205)  # 1px border around each tile
 
 # Paths
-DREAMBOOTH_DATASET = Path("dreambooth/dataset")
+DREAMBOOTH_DATASET = Path("data/instance_images")
 RESULTS_ROOT = Path("results")
 OUT_DIR = Path("results/figures")
 

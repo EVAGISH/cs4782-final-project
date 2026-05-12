@@ -130,11 +130,15 @@ but are slow.
 ```bash
 git clone <this-repo-url>
 cd cs4782-final-project
-git clone https://github.com/google/dreambooth.git           # subject images
 pip install -r code/requirements.txt
 ```
 
 ### One-shot reproduction
+
+**Note:** Every stage in `run_pipeline.py` (train / generate / evaluate) skips cells whose
+outputs already exist, so re-running is idempotent and safe. If you need to
+regenerate something, delete the corresponding marker file (`run_stats.json`
+for train, `metadata.json` for generate, `metrics.json` for evaluate) and re-run.
 
 ```bash
 # Generate 200 class-prior images per class (~20 min)
@@ -169,7 +173,7 @@ python code/generate.py subject=dog model.model_path=results/dog_lora
 
 # Evaluate generated images
 python code/evaluate.py \
-  --real_images_dir dreambooth/dataset/dog \
+  --real_images_dir data/instance_images/dog \
   --generated_images_dir results/dog_lora_results \
   --prompts_file results/dog_lora_results/metadata.json \
   --output_file results/dog_lora_results/metrics.json

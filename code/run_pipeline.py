@@ -17,14 +17,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+from PIL import Image as PILImage
+
+sys.path.insert(0, str(Path(__file__).parent))
+from class_priors import append_class_prior_images, pil_to_uint8_rgb  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Configuration -- edit subjects/methods/paths here
 # ---------------------------------------------------------------------------
 
 PRETRAINED_MODEL = "runwayml/stable-diffusion-v1-5"
-INSTANCE_DATA_ROOT = Path("dreambooth/dataset")
+INSTANCE_DATA_ROOT = Path("data/instance_images")
 CLASS_DATA_ROOT = Path("data/class_images")
+CLASS_PRIORS_ROOT = Path("class_priors")
 RESULTS_ROOT = Path("results")
 PROMPTS_TEMPLATE = Path("code/prompts.json")
 
@@ -51,6 +58,26 @@ LORA_ALPHA = 16.0
 NUM_IMAGES_PER_PROMPT = 4
 GUIDANCE_SCALE = 7.5
 NUM_INFERENCE_STEPS = 50
+
+
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+
+def pack_class_images_to_npz(class_images_dir: Path, npz_path: Path) -> bool:
+    """Pack a directory of class images into an .npz file. Returns True if packed."""
+    if npz_path.exists():
+        return True
+    images = [
+        pil_to_uint8_rgb(PILImage.open(p))
+        for p in sorted(class_images_dir.iterdir())
+        if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES
+    ]
+    if not images:
+        return False
+    npz_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(str(npz_path), images=np.stack(images, axis=0))
+    print(f"Packed {len(images)} class images -> {npz_path}")
+    return True
 
 
 def slugify(s):
@@ -81,13 +108,14 @@ def run(cmd):
 def stage_train():
     for subject, class_noun in SUBJECTS.items():
         instance_dir = INSTANCE_DATA_ROOT / subject
-        class_dir = class_dir_for(class_noun)
         if not instance_dir.exists():
             print(f"SKIP train {subject}: {instance_dir} not found")
             continue
-        if not class_dir.exists() or not any(class_dir.iterdir()):
-            print(f"SKIP train {subject}: class images missing at {class_dir} "
-                  f"(run generate_class_images.py first)")
+
+        class_dir = class_dir_for(class_noun)
+        npz_path = CLASS_PRIORS_ROOT / f"{subject}_class_priors.npz"
+        if not pack_class_images_to_npz(class_dir, npz_path):
+            print(f"SKIP train {subject}: class images missing at {class_dir}")
             continue
 
         for method in METHODS:
@@ -100,25 +128,22 @@ def stage_train():
                 continue
 
             prior_w = PRIOR_LOSS_WEIGHT_LORA if method == "lora" else PRIOR_LOSS_WEIGHT_FULL
+            lr = LEARNING_RATE_LORA if method == "lora" else LEARNING_RATE
+            mode = "lora" if method == "lora" else "full"
             cmd = [
                 sys.executable, "code/train_dreambooth.py",
-                "--pretrained_model", PRETRAINED_MODEL,
-                "--instance_data_dir", str(instance_dir),
-                "--class_data_dir", str(class_dir),
-                "--output_dir", str(output_dir),
-                "--instance_prompt", f"a photo of {V_TOKEN} {class_noun}",
-                "--class_prompt", f"a photo of a {class_noun}",
-                "--num_class_images", str(NUM_CLASS_IMAGES),
-                "--max_train_steps", str(MAX_TRAIN_STEPS),
-                "--learning_rate", str(LEARNING_RATE_LORA if method == "lora" else LEARNING_RATE),
-                "--prior_loss_weight", str(prior_w),
-                "--mixed_precision", "no",
+                f"subject={subject}",
+                f"mode={mode}",
+                f"training.output_dir={str(output_dir)}",
+                f"training.prior_loss_weight={prior_w}",
+                f"training.max_train_steps={MAX_TRAIN_STEPS}",
+                f"training.learning_rate={lr}",
+                f"data.class_images_npz={str(npz_path)}",
             ]
             if method == "lora":
                 cmd += [
-                    "--use_lora",
-                    "--lora_rank", str(LORA_RANK),
-                    "--lora_alpha", str(LORA_ALPHA),
+                    f"lora.rank={LORA_RANK}",
+                    f"lora.alpha={LORA_ALPHA}",
                 ]
             run(cmd)
 
@@ -134,18 +159,17 @@ def stage_generate():
 
             cmd = [
                 sys.executable, "code/generate.py",
-                "--prompts_template", str(PROMPTS_TEMPLATE),
-                "--class_noun", class_noun,
-                "--output_dir", str(results_dir),
-                "--num_images_per_prompt", str(NUM_IMAGES_PER_PROMPT),
-                "--guidance_scale", str(GUIDANCE_SCALE),
-                "--num_inference_steps", str(NUM_INFERENCE_STEPS),
+                f"subject={subject}",
+                f"inference.output_dir={str(results_dir)}",
+                f"inference.num_images_per_prompt={NUM_IMAGES_PER_PROMPT}",
+                f"inference.guidance_scale={GUIDANCE_SCALE}",
+                f"inference.num_inference_steps={NUM_INFERENCE_STEPS}",
             ]
 
             if method == "base":
                 cmd += [
-                    "--model_path", PRETRAINED_MODEL,
-                    "--v_token", "",
+                    "mode=full",
+                    f"model.model_path={PRETRAINED_MODEL}",
                 ]
             elif method == "full":
                 model_dir = model_dir_for(subject, "full")
@@ -153,8 +177,8 @@ def stage_generate():
                     print(f"SKIP generate {subject}/full: trained model not found at {model_dir}")
                     continue
                 cmd += [
-                    "--model_path", str(model_dir),
-                    "--v_token", V_TOKEN,
+                    "mode=full",
+                    f"model.model_path={str(model_dir)}",
                 ]
             elif method == "lora":
                 model_dir = model_dir_for(subject, "lora")
@@ -162,9 +186,8 @@ def stage_generate():
                     print(f"SKIP generate {subject}/lora: LoRA weights not found at {model_dir}")
                     continue
                 cmd += [
-                    "--model_path", PRETRAINED_MODEL,
-                    "--lora_path", str(model_dir),
-                    "--v_token", V_TOKEN,
+                    "mode=lora",
+                    f"model.model_path={str(model_dir)}",
                 ]
             run(cmd)
 

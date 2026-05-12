@@ -1,32 +1,29 @@
 # Data
 
-This re-implementation uses two image sources. Neither is checked in to this
-repository — both are obtained at setup time.
+This re-implementation uses two image sources.
 
 ## 1. Subject reference images (DreamBooth dataset)
 
 Source: official DreamBooth dataset released by the paper authors at
 <https://github.com/google/dreambooth>.
 
-Setup (run once, from the repo root):
+The 4 subjects used by this project are checked into this repo under
+`data/instance_images/<subject>/`:
+
+| Folder                            | Class noun       | Type   |
+|-----------------------------------|------------------|--------|
+| `data/instance_images/dog`          | dog              | live   |
+| `data/instance_images/cat`          | cat              | live   |
+| `data/instance_images/backpack`     | backpack         | object |
+| `data/instance_images/bear_plushie` | stuffed bear     | object |
+
+Each subject has 4–6 reference photos. The 8-prompt recontextualization
+subset used here lives in `code/prompts.json`. To work with additional
+subjects from the full DreamBooth dataset, clone the upstream repo:
 
 ```bash
 git clone https://github.com/google/dreambooth.git
 ```
-
-This places 30 subjects under `dreambooth/dataset/<subject>/`. The subjects
-used by this project are:
-
-| Folder                       | Class noun       | Type   |
-|------------------------------|------------------|--------|
-| `dreambooth/dataset/dog`          | dog              | live   |
-| `dreambooth/dataset/cat`          | cat              | live   |
-| `dreambooth/dataset/backpack`     | backpack         | object |
-| `dreambooth/dataset/bear_plushie` | stuffed bear     | object |
-
-Each subject has 4–6 reference photos. The dataset's
-`prompts_and_classes.txt` lists the canonical prompts the paper used; the
-8-prompt subset used here lives in `code/prompts.json`.
 
 ## 2. Class prior images (auto-generated)
 
@@ -51,14 +48,13 @@ Re-running the script is idempotent — it only generates the gap up to
 
 ```
 data/
-  class_images/
+  instance_images/   (checked into the repo)
+    dog/, cat/, backpack/, bear_plushie/   (4–6 jpgs per subject)
+  class_images/      (auto-generated, gitignored)
     dog/             class_0000.png … class_0199.png
     cat/             class_0000.png … class_0199.png
     backpack/        class_0000.png … class_0199.png
     stuffed_bear/    class_0000.png … class_0199.png
-dreambooth/          (cloned externally, gitignored)
-  dataset/
-    dog/, cat/, backpack/, bear_plushie/, …
 ```
 
 ## Storage and licensing notes
