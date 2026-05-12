@@ -199,7 +199,6 @@ python code/run_guidance_pipeline.py
 
 ## 6. Results / Insights
 
-[FILL after final runs — copy from results/all_metrics.csv]
 
 | Method                 | DINO  | CLIP-I | CLIP-T |
 |------------------------|-------|--------|--------|
@@ -208,12 +207,14 @@ python code/run_guidance_pipeline.py
 | DreamBooth Full (ours) | 0.60| 0.77 | 0.33 |
 | DreamBooth LoRA (ours) | 0.52| 0.74 | 0.33 |
 
+Both methods dramatically improve subject fidelity over the base model (DINO +0.31/+0.23), with LoRA recovering ~87% of Full FT's DINO score while prompt alignment (CLIP-T) remains unchanged across all variants. The full fine-tuning approach directly reproduced from the paper is largely comparable in terms of results.
+
 LoRA efficiency vs. full fine-tuning (single RTX 4090, 1000 steps):
 
-| Variant | Trainable params | % of UNet | Train time | Peak VRAM | Checkpoint |
-|---------|------------------|-----------|------------|-----------|------------|
-| Full    | [FILL]           | 100%      | [FILL]     | [FILL]    | ~3.4 GB    |
-| LoRA r=4| [FILL]           | <1%       | [FILL]     | [FILL]    | [FILL] MB  |
+| Variant  | Trainable params | % of UNet | Train time | Peak VRAM | Checkpoint |
+|----------|------------------|-----------|------------|-----------|------------|
+| Full     | 859,520,964      | 100%      | ~12 min    | 11.95 GB  | ~4.27 GB   |
+| LoRA r=16| 2,390,016        | 0.28%     | ~9 min     | 7.61 GB   | ~9.6 MB    |
 
 Qualitative outputs are in `results/<subject>_<method>_results/` and the
 composed poster figures in `results/figures/`.
