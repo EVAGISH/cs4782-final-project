@@ -258,7 +258,7 @@ ModelScope text-to-video technical report. *arXiv preprint* arXiv:2308.06571.
 ## 9. Acknowledgements
 
 This work was completed as the final project for **CS 4782: Introduction to
-Deep Learning** at Cornell University, Spring 2026, taught by [FILL: instructor].
+Deep Learning** at Cornell University, Spring 2026, taught by Kilian Weinberger and Wei-Chiu Ma.
 We thank the course staff for guidance and feedback.
 
 The DreamBooth dataset is provided by the original paper's authors at
